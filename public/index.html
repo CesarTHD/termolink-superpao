@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Temperaturas registradas</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page:           #f9f9f7;
+    --surface-1:      #fcfcfb;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --grid:           #e1e0d9;
+    --axis:           #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --critical:       #d03b3b;
+    --faixa-quente: #d03b3b; --faixa-morna: #eda100; --faixa-fria: #4fb3ea;
+    --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100;
+    --series-5: #e87ba4; --series-6: #008300; --series-7: #4a3aa7; --series-8: #e34948;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page:           #0d0d0d;
+      --surface-1:      #1a1a19;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --grid:           #2c2c2a;
+      --axis:           #383835;
+      --border:         rgba(255,255,255,0.10);
+      --faixa-quente: #e66767; --faixa-morna: #c98500; --faixa-fria: #5cbcf0;
+      --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+      --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-8: #e66767;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page:           #0d0d0d;
+    --surface-1:      #1a1a19;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --grid:           #2c2c2a;
+    --axis:           #383835;
+    --border:         rgba(255,255,255,0.10);
+    --faixa-quente: #e66767; --faixa-morna: #c98500; --faixa-fria: #5cbcf0;
+    --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+    --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-8: #e66767;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    line-height: 1.4;
+  }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  .sub { color: var(--text-secondary); margin: 0 0 20px; font-size: .9rem; }
+
+  .filtros {
+    display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+    margin-bottom: 16px; font-size: .9rem; color: var(--text-secondary);
+  }
+  .filtros label { display: flex; gap: 6px; align-items: center; }
+  select, button {
+    font: inherit; color: var(--text-primary); background: var(--surface-1);
+    border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px;
+  }
+  button { cursor: pointer; }
+  .status { margin-left: auto; color: var(--text-muted); font-size: .8rem; }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .tile, .card {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+  }
+  .tile { padding: 12px 14px; }
+  .tile .rot { font-size: .8rem; color: var(--text-secondary); }
+  .tile .val { font-size: 1.6rem; font-weight: 600; margin-top: 2px; }
+  .tile .det { font-size: .75rem; color: var(--text-muted); }
+
+  /* Card "Última leitura" colorido pela faixa de temperatura */
+  .tile.quente { --faixa: var(--faixa-quente); }
+  .tile.morna  { --faixa: var(--faixa-morna); }
+  .tile.fria   { --faixa: var(--faixa-fria); }
+  .tile.quente, .tile.morna, .tile.fria {
+    background: color-mix(in srgb, var(--faixa) 16%, var(--surface-1));
+    border-color: var(--faixa);
+    transition: background .3s, border-color .3s;
+  }
+  .tile.quente .rot, .tile.morna .rot, .tile.fria .rot { color: var(--text-primary); }
+
+  .card { padding: 16px; }
+  .card h2 { font-size: 1rem; margin: 0 0 8px; }
+  .legenda { display: flex; flex-wrap: wrap; gap: 14px; font-size: .85rem; color: var(--text-secondary); margin-bottom: 8px; }
+  .legenda span { display: inline-flex; align-items: center; gap: 6px; }
+  .legenda i { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+
+  .grafico { position: relative; width: 100%; height: 360px; }
+  .grafico svg { display: block; width: 100%; height: 100%; }
+  .grafico text { fill: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .vazio {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: var(--text-muted); text-align: center; padding: 16px;
+  }
+  .vazio.erro { color: var(--critical); }
+
+  .tooltip {
+    position: absolute; pointer-events: none; display: none;
+    background: var(--surface-1); color: var(--text-primary);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; font-size: .8rem; white-space: nowrap;
+    box-shadow: 0 4px 16px rgba(0,0,0,.12);
+  }
+  .tooltip .hora { color: var(--text-secondary); margin-bottom: 4px; }
+  .tooltip .linha { display: flex; align-items: center; gap: 6px; }
+  .tooltip .linha i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .tooltip .linha b { margin-left: auto; padding-left: 12px; font-variant-numeric: tabular-nums; }
+
+  details { margin-top: 16px; }
+  summary { cursor: pointer; color: var(--text-secondary); font-size: .9rem; }
+  .tabela-wrap { max-height: 320px; overflow: auto; margin-top: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--grid); }
+  th { color: var(--text-secondary); font-weight: 600; position: sticky; top: 0; background: var(--surface-1); }
+  td.num { font-variant-numeric: tabular-nums; }
+
+  /* WhatsApp */
+  .whats { margin-bottom: 16px; display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: start; }
+  .whats-cab { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .whats-cab h2 { margin: 0; }
+  .selo {
+    display: inline-flex; align-items: center; gap: 6px; font-size: .8rem;
+    padding: 2px 10px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-secondary);
+  }
+  .selo::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
+  .selo.conectado::before { background: var(--series-6); }
+  .selo.conectando::before, .selo.aguardando_qr::before { background: var(--series-4); }
+  .whats-linha { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; font-size: .9rem; }
+  .whats-linha label { color: var(--text-secondary); }
+  input[type="tel"] {
+    font: inherit; color: var(--text-primary); background: var(--page);
+    border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; width: 190px;
+  }
+  button:disabled { opacity: .5; cursor: default; }
+  .whats-info { font-size: .85rem; color: var(--text-secondary); }
+  .whats-msg { font-size: .85rem; min-height: 1.2em; margin-top: 8px; color: var(--text-secondary); }
+  .whats-msg.erro { color: var(--critical); }
+  .qr { text-align: center; font-size: .8rem; color: var(--text-secondary); }
+  .qr img { display: block; width: 220px; height: 220px; background: #fff; border-radius: 8px; padding: 6px; margin-bottom: 6px; }
+  @media (max-width: 640px) { .whats { grid-template-columns: 1fr; } .qr img { margin: 0 auto 6px; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Temperaturas registradas</h1>
+  <p class="sub">Leituras armazenadas pela API, convertidas para °C.</p>
+
+  <div class="card whats">
+    <div>
+      <div class="whats-cab">
+        <h2>Alertas no WhatsApp</h2>
+        <span class="selo" id="wSelo">Carregando…</span>
+      </div>
+      <div class="whats-info" id="wInfo"></div>
+      <div class="whats-linha">
+        <button type="button" id="wConectar">Conectar</button>
+        <button type="button" id="wDesconectar">Desconectar</button>
+      </div>
+      <form class="whats-linha" id="wFormNumero">
+        <label for="wNumero">Número de disparo</label>
+        <input type="tel" id="wNumero" placeholder="5511999999999" autocomplete="off">
+        <button type="submit">Salvar</button>
+        <button type="button" id="wTeste">Enviar teste</button>
+      </form>
+      <div class="whats-msg" id="wMsg"></div>
+    </div>
+    <div class="qr" id="wQr" hidden>
+      <img id="wQrImg" alt="QR code para conectar o WhatsApp">
+      WhatsApp › Aparelhos conectados › Conectar aparelho
+    </div>
+  </div>
+
+  <div class="filtros">
+    <label>Sensor
+      <select id="filtroSensor"><option value="">Todos</option></select>
+    </label>
+    <label>Período
+      <select id="filtroPeriodo">
+        <option value="1800000">Últimos 30 minutos</option>
+        <option value="3600000">Última hora</option>
+        <option value="7200000">Última 2 horas</option>
+        <option value="86400000" selected>Últimas 24 horas</option>
+        <option value="604800000">Últimos 7 dias</option>
+        <option value="2592000000">Últimos 30 dias</option>
+        <option value="0">Tudo</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="autoAtualizar" checked> Atualizar a cada 10 s</label>
+    <button id="btnAtualizar" type="button">Atualizar</button>
+    <span class="status" id="status"></span>
+  </div>
+
+  <div class="tiles">
+    <div class="tile" id="tileUltima"><div class="rot">Última leitura</div><div class="val" id="tUltima">–</div><div class="det" id="tUltimaHora"></div></div>
+    <div class="tile"><div class="rot">Mínima</div><div class="val" id="tMin">–</div></div>
+    <div class="tile"><div class="rot">Máxima</div><div class="val" id="tMax">–</div></div>
+    <div class="tile"><div class="rot">Média</div><div class="val" id="tMedia">–</div><div class="det" id="tQtd"></div></div>
+  </div>
+
+  <div class="card">
+    <h2>Temperatura ao longo do tempo (°C)</h2>
+    <div class="legenda" id="legenda"></div>
+    <div class="grafico" id="grafico">
+      <svg id="svg" role="img" aria-label="Gráfico de linha das temperaturas registradas"></svg>
+      <div class="tooltip" id="tooltip"></div>
+      <div class="vazio" id="vazio">Carregando…</div>
+    </div>
+
+    <details>
+      <summary>Ver dados em tabela</summary>
+      <div class="tabela-wrap">
+        <table>
+          <thead><tr><th>Data/hora</th><th>Sensor</th><th>Temperatura (°C)</th><th>Valor original</th></tr></thead>
+          <tbody id="tabela"></tbody>
+        </table>
+      </div>
+    </details>
+  </div>
+</main>
+
+<script>
+  // Endereço da API. Relativo porque a própria API serve esta página.
+  const API = "/temperaturas";
+  const SEM_SENSOR = "(sem sensor)";
+  const NS = "http://www.w3.org/2000/svg";
+
+  const el = (id) => document.getElementById(id);
+  const fmtNum = new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  const fmtHora = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  const fmtDia = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit" });
+  const fmtCompleto = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "medium" });
+
+  let registros = [];
+  // A cor segue o sensor (ordem de primeira aparição), nunca a posição no filtro.
+  const corDoSensor = new Map();
+
+  function paraCelsius(valor, unidade) {
+    if (unidade === "F") return (valor - 32) * 5 / 9;
+    if (unidade === "K") return valor - 273.15;
+    return valor;
+  }
+
+  function cor(sensor) {
+    if (!corDoSensor.has(sensor)) corDoSensor.set(sensor, (corDoSensor.size % 8) + 1);
+    return `var(--series-${corDoSensor.get(sensor)})`;
+  }
+
+  async function carregar() {
+    el("status").textContent = "Atualizando…";
+    try {
+      const resp = await fetch(API, { cache: "no-store" });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const dados = await resp.json();
+      registros = dados
+        .map((t) => ({
+          id: t.id,
+          sensor: t.sensor || SEM_SENSOR,
+          valorOriginal: t.valor,
+          unidade: t.unidade,
+          c: paraCelsius(t.valor, t.unidade),
+          t: new Date(t.dataHora).getTime(),
+        }))
+        .filter((r) => Number.isFinite(r.c) && Number.isFinite(r.t))
+        .sort((a, b) => a.t - b.t);
+      registros.forEach((r) => cor(r.sensor));
+      atualizarSensores();
+      desenhar();
+      el("status").textContent = `Atualizado às ${fmtHora.format(new Date())}`;
+    } catch (e) {
+      mostrarVazio(
+        `Não foi possível ler a API (${e.message}). Abra esta página pelo endereço da API, ex.: http://localhost:3000/`,
+        true
+      );
+      el("status").textContent = "Falha ao atualizar";
+    }
+  }
+
+  function atualizarSensores() {
+    const sel = el("filtroSensor");
+    const atual = sel.value;
+    const sensores = [...corDoSensor.keys()];
+    sel.innerHTML = '<option value="">Todos</option>' +
+      sensores.map((s) => `<option value="${escapar(s)}">${escapar(s)}</option>`).join("");
+    if (sensores.includes(atual)) sel.value = atual;
+  }
+
+  function filtrados() {
+    const sensor = el("filtroSensor").value;
+    const periodo = Number(el("filtroPeriodo").value);
+    const inicio = periodo ? Date.now() - periodo : -Infinity;
+    return registros.filter((r) => r.t >= inicio && (!sensor || r.sensor === sensor));
+  }
+
+  function escapar(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  function mostrarVazio(msg, erro = false) {
+    const v = el("vazio");
+    v.textContent = msg;
+    v.classList.toggle("erro", erro);
+    v.style.display = msg ? "flex" : "none";
+  }
+
+  // Escala "bonita" para o eixo Y
+  function ticksBonitos(min, max, qtd = 5) {
+    if (min === max) { min -= 1; max += 1; }
+    const bruto = (max - min) / qtd;
+    const mag = Math.pow(10, Math.floor(Math.log10(bruto)));
+    const passo = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((p) => p >= bruto);
+    const ini = Math.floor(min / passo) * passo;
+    const fim = Math.ceil(max / passo) * passo;
+    const ticks = [];
+    for (let v = ini; v <= fim + passo / 2; v += passo) ticks.push(Number(v.toFixed(6)));
+    return ticks;
+  }
+
+  // Faixa de cor da última leitura: acima de 60 °C quente, 40–60 morna, abaixo de 40 fria
+  function faixaTemperatura(c) {
+    if (c > 20) return "quente";
+    if (c >= 17) return "morna";
+    return "fria";
+  }
+
+  function atualizarResumo(lista) {
+    el("tileUltima").classList.remove("quente", "morna", "fria");
+    if (!lista.length) {
+      ["tUltima", "tMin", "tMax", "tMedia"].forEach((id) => (el(id).textContent = "–"));
+      el("tUltimaHora").textContent = el("tQtd").textContent = "";
+      return;
+    }
+    const valores = lista.map((r) => r.c);
+    const ultima = lista[lista.length - 1];
+    el("tileUltima").classList.add(faixaTemperatura(ultima.c));
+    el("tUltima").textContent = `${fmtNum.format(ultima.c)} °C`;
+    el("tUltimaHora").textContent = `${fmtCompleto.format(ultima.t)} · ${ultima.sensor}`;
+    el("tMin").textContent = `${fmtNum.format(Math.min(...valores))} °C`;
+    el("tMax").textContent = `${fmtNum.format(Math.max(...valores))} °C`;
+    el("tMedia").textContent = `${fmtNum.format(valores.reduce((a, b) => a + b, 0) / valores.length)} °C`;
+    el("tQtd").textContent = `${lista.length} leitura${lista.length > 1 ? "s" : ""}`;
+  }
+
+  function atualizarTabela(lista) {
+    el("tabela").innerHTML = lista.slice().reverse().map((r) => `
+      <tr>
+        <td>${fmtCompleto.format(r.t)}</td>
+        <td>${escapar(r.sensor)}</td>
+        <td class="num">${fmtNum.format(r.c)}</td>
+        <td class="num">${escapar(r.valorOriginal)} ${escapar(r.unidade)}</td>
+      </tr>`).join("");
+  }
+
+  function svgEl(tag, attrs, pai) {
+    const n = document.createElementNS(NS, tag);
+    for (const k in attrs) n.setAttribute(k, attrs[k]);
+    if (pai) pai.appendChild(n);
+    return n;
+  }
+
+  function desenhar() {
+    const lista = filtrados();
+    atualizarResumo(lista);
+    atualizarTabela(lista);
+
+    const svg = el("svg");
+    svg.innerHTML = "";
+    el("tooltip").style.display = "none";
+
+    // Agrupa por sensor
+    const series = new Map();
+    lista.forEach((r) => {
+      if (!series.has(r.sensor)) series.set(r.sensor, []);
+      series.get(r.sensor).push(r);
+    });
+
+    // Legenda só quando há mais de uma série
+    el("legenda").innerHTML = series.size > 1
+      ? [...series.keys()].map((s) => `<span><i style="background:${cor(s)}"></i>${escapar(s)}</span>`).join("")
+      : "";
+
+    if (!lista.length) {
+      mostrarVazio(registros.length ? "Nenhuma leitura no período selecionado." : "Nenhuma temperatura registrada ainda.");
+      return;
+    }
+    mostrarVazio("");
+
+    const caixa = el("grafico").getBoundingClientRect();
+    const W = caixa.width, H = caixa.height;
+    const m = { top: 12, right: 16, bottom: 28, left: 44 };
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+
+    const valores = lista.map((r) => r.c);
+    const yTicks = ticksBonitos(Math.min(...valores), Math.max(...valores));
+    const yMin = yTicks[0], yMax = yTicks[yTicks.length - 1];
+    let tMin = lista[0].t, tMax = lista[lista.length - 1].t;
+    if (tMin === tMax) { tMin -= 60000; tMax += 60000; }
+
+    const x = (t) => m.left + (t - tMin) / (tMax - tMin) * (W - m.left - m.right);
+    const y = (v) => m.top + (1 - (v - yMin) / (yMax - yMin)) * (H - m.top - m.bottom);
+
+    // Grade e eixo Y
+    yTicks.forEach((v) => {
+      svgEl("line", { x1: m.left, x2: W - m.right, y1: y(v), y2: y(v), stroke: "var(--grid)", "stroke-width": 1 }, svg);
+      const txt = svgEl("text", { x: m.left - 8, y: y(v) + 4, "text-anchor": "end" }, svg);
+      txt.textContent = fmtNum.format(v);
+    });
+    svgEl("line", { x1: m.left, x2: W - m.right, y1: H - m.bottom, y2: H - m.bottom, stroke: "var(--axis)", "stroke-width": 1 }, svg);
+
+    // Eixo X (tempo)
+    const umDia = 86400000;
+    const qtdX = Math.max(2, Math.floor((W - m.left - m.right) / 110));
+    for (let i = 0; i <= qtdX; i++) {
+      const t = tMin + (tMax - tMin) * i / qtdX;
+      const d = new Date(t);
+      const txt = svgEl("text", {
+        x: x(t), y: H - m.bottom + 18,
+        "text-anchor": i === 0 ? "start" : i === qtdX ? "end" : "middle",
+      }, svg);
+      txt.textContent = tMax - tMin > umDia ? `${fmtDia.format(d)} ${fmtHora.format(d)}` : fmtHora.format(d);
+    }
+
+    // Linhas (quebra a linha quando há um buraco grande entre leituras)
+    series.forEach((pts, sensor) => {
+      const intervalos = pts.slice(1).map((p, i) => p.t - pts[i].t).sort((a, b) => a - b);
+      const mediana = intervalos.length ? intervalos[Math.floor(intervalos.length / 2)] : 0;
+      const limiteBuraco = Math.max(mediana * 5, 60000);
+      let d = "";
+      pts.forEach((p, i) => {
+        const novoTrecho = i === 0 || p.t - pts[i - 1].t > limiteBuraco;
+        d += `${novoTrecho ? "M" : "L"}${x(p.t).toFixed(1)},${y(p.c).toFixed(1)}`;
+      });
+      svgEl("path", {
+        d, fill: "none", stroke: cor(sensor), "stroke-width": 2,
+        "stroke-linejoin": "round", "stroke-linecap": "round",
+      }, svg);
+      // Ponto isolado (trecho de uma leitura só) fica visível como marcador
+      pts.forEach((p, i) => {
+        const antes = i > 0 && p.t - pts[i - 1].t <= limiteBuraco;
+        const depois = i < pts.length - 1 && pts[i + 1].t - p.t <= limiteBuraco;
+        if (!antes && !depois) {
+          svgEl("circle", { cx: x(p.t), cy: y(p.c), r: 4, fill: cor(sensor), stroke: "var(--surface-1)", "stroke-width": 2 }, svg);
+        }
+      });
+    });
+
+    // Camada de hover: linha vertical + marcadores + tooltip
+    const hover = svgEl("g", { style: "display:none" }, svg);
+    const guia = svgEl("line", { y1: m.top, y2: H - m.bottom, stroke: "var(--axis)", "stroke-width": 1 }, hover);
+    const marcadores = new Map();
+    series.forEach((_, s) => {
+      marcadores.set(s, svgEl("circle", { r: 5, fill: cor(s), stroke: "var(--surface-1)", "stroke-width": 2 }, hover));
+    });
+    const alvo = svgEl("rect", {
+      x: m.left, y: m.top, width: W - m.left - m.right, height: H - m.top - m.bottom,
+      fill: "transparent", style: "cursor:crosshair",
+    }, svg);
+    const tip = el("tooltip");
+
+    function mover(ev) {
+      const r = svg.getBoundingClientRect();
+      const px = ev.clientX - r.left;
+      const tAlvo = tMin + (px - m.left) / (W - m.left - m.right) * (tMax - tMin);
+
+      // Leitura mais próxima de cada sensor
+      const proximos = [];
+      series.forEach((pts, s) => {
+        let melhor = pts[0];
+        for (const p of pts) if (Math.abs(p.t - tAlvo) < Math.abs(melhor.t - tAlvo)) melhor = p;
+        proximos.push({ s, p: melhor });
+      });
+      const ref = proximos.reduce((a, b) => (Math.abs(b.p.t - tAlvo) < Math.abs(a.p.t - tAlvo) ? b : a)).p;
+
+      hover.style.display = "";
+      guia.setAttribute("x1", x(ref.t));
+      guia.setAttribute("x2", x(ref.t));
+      proximos.forEach(({ s, p }) => {
+        const c = marcadores.get(s);
+        c.setAttribute("cx", x(p.t));
+        c.setAttribute("cy", y(p.c));
+      });
+
+      tip.innerHTML = `<div class="hora">${fmtCompleto.format(ref.t)}</div>` +
+        proximos.map(({ s, p }) =>
+          `<div class="linha"><i style="background:${cor(s)}"></i>${escapar(s)}<b>${fmtNum.format(p.c)} °C</b></div>`
+        ).join("");
+      tip.style.display = "block";
+      const tw = tip.offsetWidth, th = tip.offsetHeight;
+      let left = x(ref.t) + 12;
+      if (left + tw > W) left = x(ref.t) - tw - 12;
+      tip.style.left = `${Math.max(0, left)}px`;
+      tip.style.top = `${Math.max(0, Math.min(y(ref.c) - th / 2, H - th))}px`;
+    }
+    function sair() {
+      hover.style.display = "none";
+      tip.style.display = "none";
+    }
+    alvo.addEventListener("pointermove", mover);
+    alvo.addEventListener("pointerdown", mover);
+    alvo.addEventListener("pointerleave", sair);
+  }
+
+  // Eventos
+  el("filtroSensor").addEventListener("change", desenhar);
+  el("filtroPeriodo").addEventListener("change", desenhar);
+  el("btnAtualizar").addEventListener("click", carregar);
+  let tempoResize;
+  window.addEventListener("resize", () => {
+    clearTimeout(tempoResize);
+    tempoResize = setTimeout(desenhar, 150);
+  });
+  setInterval(() => {
+    if (el("autoAtualizar").checked) carregar();
+  }, 10000);
+
+  carregar();
+
+  // --- WhatsApp ---
+  const ROTULOS = {
+    desconectado: "Desconectado",
+    conectando: "Conectando…",
+    aguardando_qr: "Aguardando leitura do QR code",
+    conectado: "Conectado",
+  };
+  let estadoWhats = null;
+  let numeroEditado = false;
+  let timerWhats;
+
+  function mensagemWhats(texto, erro = false) {
+    el("wMsg").textContent = texto || "";
+    el("wMsg").classList.toggle("erro", erro);
+  }
+
+  function mostrarWhats(s) {
+    estadoWhats = s.estado;
+    el("wSelo").textContent = ROTULOS[s.estado] || s.estado;
+    el("wSelo").className = `selo ${s.estado}`;
+    el("wInfo").textContent = s.estado === "conectado"
+      ? `Conta conectada: +${s.conta}. Um alerta é enviado quando uma leitura passa de ${s.limiteC} °C.`
+      : "Conecte uma conta do WhatsApp para enviar os alertas de temperatura.";
+    el("wConectar").disabled = s.estado !== "desconectado";
+    el("wDesconectar").disabled = s.estado === "desconectado";
+    el("wTeste").disabled = s.estado !== "conectado" || !s.numeroDestino;
+    el("wQr").hidden = !s.qr;
+    if (s.qr) el("wQrImg").src = s.qr;
+    if (!numeroEditado) el("wNumero").value = s.numeroDestino || "";
+    if (s.erro && s.estado === "desconectado") mensagemWhats(s.erro, true);
+  }
+
+  async function chamarWhats(caminho, opcoes = {}) {
+    const resp = await fetch(`/whatsapp${caminho}`, {
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      ...opcoes,
+    });
+    const dados = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(dados.erro || `HTTP ${resp.status}`);
+    return dados;
+  }
+
+  // Consulta o estado: rápido enquanto conecta/mostra QR, devagar quando estável
+  async function atualizarWhats() {
+    clearTimeout(timerWhats);
+    try {
+      mostrarWhats(await chamarWhats(""));
+    } catch (e) {
+      el("wSelo").textContent = "Indisponível";
+      el("wSelo").className = "selo";
+    }
+    const rapido = estadoWhats === "conectando" || estadoWhats === "aguardando_qr";
+    timerWhats = setTimeout(atualizarWhats, rapido ? 2000 : 10000);
+  }
+
+  el("wConectar").addEventListener("click", async () => {
+    mensagemWhats("");
+    el("wConectar").disabled = true;
+    try { mostrarWhats(await chamarWhats("/conectar", { method: "POST" })); }
+    catch (e) { mensagemWhats(e.message, true); }
+    atualizarWhats();
+  });
+
+  el("wDesconectar").addEventListener("click", async () => {
+    if (!confirm("Desconectar o WhatsApp? Os alertas deixam de ser enviados até conectar de novo.")) return;
+    mensagemWhats("");
+    try { mostrarWhats(await chamarWhats("/desconectar", { method: "POST" })); }
+    catch (e) { mensagemWhats(e.message, true); }
+    atualizarWhats();
+  });
+
+  el("wNumero").addEventListener("input", () => (numeroEditado = true));
+
+  el("wFormNumero").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    try {
+      const s = await chamarWhats("/numero", {
+        method: "PUT",
+        body: JSON.stringify({ numero: el("wNumero").value }),
+      });
+      numeroEditado = false;
+      mostrarWhats(s);
+      mensagemWhats(`Número salvo: +${s.numeroDestino}`);
+    } catch (e) {
+      mensagemWhats(e.message, true);
+    }
+  });
+
+  el("wTeste").addEventListener("click", async () => {
+    mensagemWhats("Enviando…");
+    el("wTeste").disabled = true;
+    try {
+      await chamarWhats("/teste", { method: "POST" });
+      mensagemWhats("Mensagem de teste enviada.");
+    } catch (e) {
+      mensagemWhats(e.message, true);
+    }
+    atualizarWhats();
+  });
+
+  atualizarWhats();
+</script>
+</body>
+</html>
