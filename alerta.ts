@@ -1,10 +1,11 @@
 // Alerta de temperatura alta via WhatsApp.
-// Dispara uma única mensagem quando a temperatura ultrapassa o limite e só
-// volta a disparar depois que ela cair abaixo do limite e subir de novo.
+// Dispara uma mensagem a cada leitura acima do limite. A primeira avisa que o
+// limite foi ultrapassado; as seguintes avisam que a temperatura continua alta,
+// até que ela volte para baixo do limite.
 
 import { enviarMensagem } from "./whatsapp.js";
 
-export const LIMITE_C = Number(process.env.ALERTA_LIMITE_C) || 20;
+export const LIMITE_C = Number(process.env.ALERTA_LIMITE_C) || 8;
 
 interface Leitura {
   valor: number;
@@ -13,11 +14,15 @@ interface Leitura {
   dataHora: string;
 }
 
-// Sensores que estão acima do limite e já foram avisados
-const emAlerta = new Set<string>();
+// Sensores que estão acima do limite -> horário da primeira leitura acima do limite
+const emAlerta = new Map<string, string>();
 
 function chaveSensor(sensor?: string): string {
   return sensor ?? "(sem sensor)";
+}
+
+function formatarHorario(dataHora: string): string {
+  return new Date(dataHora).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
 }
 
 export function paraCelsius(valor: number, unidade: Leitura["unidade"]): number {
@@ -26,42 +31,43 @@ export function paraCelsius(valor: number, unidade: Leitura["unidade"]): number 
   return valor;
 }
 
-// Recupera o estado a partir do histórico, para não reenviar o alerta ao reiniciar
+// Recupera o estado a partir do histórico, para que a próxima mensagem após
+// reiniciar saiba desde quando a temperatura está acima do limite
 export function inicializarAlertas(historico: Leitura[]): void {
-  const ultimaPorSensor = new Map<string, Leitura>();
-  for (const t of historico) ultimaPorSensor.set(chaveSensor(t.sensor), t);
-  for (const [chave, t] of ultimaPorSensor) {
-    if (paraCelsius(t.valor, t.unidade) > LIMITE_C) emAlerta.add(chave);
+  for (const t of historico) {
+    const chave = chaveSensor(t.sensor);
+    const celsius = paraCelsius(t.valor, t.unidade);
+    if (celsius < LIMITE_C) emAlerta.delete(chave);
+    else if (celsius > LIMITE_C && !emAlerta.has(chave)) emAlerta.set(chave, t.dataHora);
   }
 }
 
-// Avalia cada nova leitura e dispara o alerta quando necessário
+// Avalia cada nova leitura e dispara o alerta enquanto estiver acima do limite
 export function verificarTemperatura(leitura: Leitura): void {
   const chave = chaveSensor(leitura.sensor);
   const celsius = paraCelsius(leitura.valor, leitura.unidade);
 
   if (celsius < LIMITE_C) {
-    emAlerta.delete(chave); // rearma o alerta
+    emAlerta.delete(chave); // temperatura normalizada
     return;
   }
-  if (celsius === LIMITE_C || emAlerta.has(chave)) return;
+  if (celsius === LIMITE_C) return;
 
-  // Marca antes de enviar para não duplicar se chegarem leituras durante o envio
-  emAlerta.add(chave);
+  const desde = emAlerta.get(chave);
+  if (!desde) emAlerta.set(chave, leitura.dataHora);
 
   const sensor = leitura.sensor ? ` no sensor "${leitura.sensor}"` : "";
-  const horario = new Date(leitura.dataHora).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+  const titulo = desde
+    ? `⚠️ Temperatura continua acima do limite${sensor}!`
+    : `⚠️ Alerta de temperatura${sensor}!`;
   const texto =
-    `⚠️ Alerta de temperatura${sensor}!\n` +
+    `${titulo}\n` +
     `Leitura: ${leitura.valor}${leitura.unidade === "K" ? " K" : `°${leitura.unidade}`}` +
     ` (limite: ${LIMITE_C}°C)\n` +
-    `Horário: ${horario}`;
+    `Horário: ${formatarHorario(leitura.dataHora)}` +
+    (desde ? `\nAcima do limite desde: ${formatarHorario(desde)}` : "");
 
   enviarMensagem(texto)
     .then(() => console.log(`[alerta] Mensagem enviada (${chave}: ${leitura.valor}${leitura.unidade})`))
-    .catch((erro) => {
-      // Desmarca para tentar de novo na próxima leitura acima do limite
-      emAlerta.delete(chave);
-      console.error("[alerta] Falha ao enviar mensagem:", erro.message);
-    });
+    .catch((erro) => console.error("[alerta] Falha ao enviar mensagem:", erro.message));
 }
